@@ -26,6 +26,37 @@ function renderLogin(res, error = "") {
 
 const router = Router();
 
+// Redirect URIs must point at a host we trust. Without this, anyone can register
+// a client with their own redirect_uri and phish an authorization code (and so a
+// bearer token) out of a logged-in user. Comma-separated; subdomains match too.
+const ALLOWED_REDIRECT_HOSTS = (process.env.ALLOWED_REDIRECT_HOSTS || "claude.ai,claude.com")
+  .split(",").map(h => h.trim().toLowerCase()).filter(Boolean);
+
+function isAllowedRedirectUri(uri) {
+  let url;
+  try { url = new URL(uri); } catch { return false; }
+  const host = url.hostname.toLowerCase();
+  if (url.protocol === "http:" && (host === "localhost" || host === "127.0.0.1")) return true;
+  if (url.protocol !== "https:") return false;
+  return ALLOWED_REDIRECT_HOSTS.some(h => host === h || host.endsWith(`.${h}`));
+}
+
+// Slow down password guessing: 10 login/register attempts per IP per 15 minutes.
+const authAttempts = new Map(); // ip → { count, resetAt }
+function authRateLimit(req, res, next) {
+  const now = Date.now();
+  const entry = authAttempts.get(req.ip);
+  if (!entry || entry.resetAt < now) {
+    authAttempts.set(req.ip, { count: 1, resetAt: now + 15 * 60 * 1000 });
+    return next();
+  }
+  if (++entry.count > 10) {
+    console.log(`[auth] ANOMALOUS rate limit hit ip=${req.ip}`);
+    return res.status(429).send("Too many attempts. Try again in 15 minutes.");
+  }
+  next();
+}
+
 // BASE_URL is optional: if not set, derive from the incoming request so the
 // server works behind any proxy (including a Cloudflare quick tunnel) without
 // needing to know its public URL at startup.
@@ -71,6 +102,10 @@ router.post(["/oauth/register", "/register"], (req, res) => {
   const { redirect_uris, client_name } = req.body || {};
   const clientId = randomUUID();
   const redirectUri = Array.isArray(redirect_uris) ? redirect_uris[0] : redirect_uris || null;
+  if (!redirectUri || !isAllowedRedirectUri(redirectUri)) {
+    console.log(`[oauth] ANOMALOUS client registration rejected: redirect_uri=${redirectUri} ip=${req.ip}`);
+    return res.status(400).json({ error: "invalid_redirect_uri" });
+  }
   registerOAuthClient({ clientId, redirectUri });
   res.status(201).json({
     client_id: clientId,
@@ -95,9 +130,20 @@ router.get(["/oauth/authorize", "/authorize"], (req, res) => {
 
   // Confidential clients (those with a client_secret) don't use PKCE
   const clientRecord = getOAuthClientWithSecret(client_id);
-  const isConfidential = !!(clientRecord && clientRecord.client_secret_hash);
+  if (!clientRecord) {
+    return res.status(400).send("Unknown client_id");
+  }
+  const isConfidential = !!clientRecord.client_secret_hash;
   if (!isConfidential && !code_challenge) {
     return res.status(400).send("Missing required parameter: code_challenge");
+  }
+  // The redirect must be the one the client registered (public clients), and
+  // always on an allowed host, so codes can only ever be delivered to a trusted app.
+  if (!redirect_uri || !isAllowedRedirectUri(redirect_uri)
+      || (clientRecord.redirect_uri && redirect_uri !== clientRecord.redirect_uri)
+      || (!isConfidential && !clientRecord.redirect_uri)) {
+    console.log(`[oauth] ANOMALOUS authorize rejected: client_id=${client_id.slice(0, 8)}… redirect_uri=${redirect_uri} ip=${req.ip}`);
+    return res.status(400).send("Invalid redirect_uri");
   }
 
   // Store OAuth params in session
@@ -143,6 +189,11 @@ async function handleAuthCodeGrant(req, res) {
   const codeRow = consumeOAuthCode(code);
   if (!codeRow) {
     return res.status(400).json({ error: "invalid_grant", error_description: "Code invalid or expired" });
+  }
+  // RFC 6749 §4.1.3: the code is bound to the client and redirect_uri it was issued for.
+  if ((client_id && client_id !== codeRow.client_id)
+      || (redirect_uri && redirect_uri !== codeRow.redirect_uri)) {
+    return res.status(400).json({ error: "invalid_grant", error_description: "Code was issued to a different client" });
   }
 
   if (code_verifier) {
@@ -260,7 +311,7 @@ async function handleClientCredentialsGrant(req, res) {
 
 // ── Login / Registration form handlers ───────────────────────────────────────
 
-router.post("/auth/login", async (req, res) => {
+router.post("/auth/login", authRateLimit, async (req, res) => {
   const { email, password } = req.body || {};
   console.log(`[auth] login attempt: ${email}`);
   if (!email || !password) {
@@ -276,7 +327,7 @@ router.post("/auth/login", async (req, res) => {
   }
 });
 
-router.post("/auth/register", async (req, res) => {
+router.post("/auth/register", authRateLimit, async (req, res) => {
   const { email, password } = req.body || {};
   console.log(`[auth] register attempt: ${email}`);
   if (!email || !password) {
