@@ -106,7 +106,15 @@ export class MockAnyListClient {
       category: i.category || 'other',
       ...(includeNotes && i.notes ? { note: i.notes } : {}),
       ...(includeStore && i.store ? { store: i.store } : {}),
+      price: i.price ?? null,
     }));
+  }
+
+  async setItemPrice(name, price, store = null) {
+    const item = this._items.find(i => i.name === name);
+    if (!item) throw new Error(`Item "${name}" not found in list`);
+    item.price = price === 0 ? null : price;
+    item.priceStore = store;
   }
 
   async setItemStore(name, store) {

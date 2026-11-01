@@ -243,6 +243,57 @@ describe('shopping tool', () => {
     });
   });
 
+  describe('prices', () => {
+    it('shows prices next to items in list_items', async () => {
+      client._items.push({ name: 'Greek yogurt', quantity: 2, price: 5.49 }, { name: 'Eggs' });
+      const text = (await handlers.shopping({ action: 'list_items' })).content[0].text;
+      assert.ok(text.includes('Greek yogurt (2) $5.49'));
+      assert.ok(text.includes('- Eggs\n') || text.endsWith('- Eggs'));
+    });
+
+    it('sets a price with set_item_price', async () => {
+      client._items.push({ name: 'Greek yogurt' });
+      const result = await handlers.shopping({ action: 'set_item_price', name: 'yogurt', price: 5.49 });
+      assert.ok(result.content[0].text.includes('Set the price of "Greek yogurt" to $5.49'));
+      assert.equal(client._items[0].price, 5.49);
+    });
+
+    it('passes the store through to set_item_price', async () => {
+      client._stores = [{ name: 'Trader Joes' }];
+      client._items.push({ name: 'Eggs' });
+      await handlers.shopping({ action: 'set_item_price', name: 'Eggs', price: 3.79, store_name: 'Trader Joes' });
+      assert.equal(client._items[0].priceStore, 'Trader Joes');
+    });
+
+    it('clears a price with 0', async () => {
+      client._items.push({ name: 'Eggs', price: 3.79 });
+      const result = await handlers.shopping({ action: 'set_item_price', name: 'Eggs', price: 0 });
+      assert.ok(result.content[0].text.includes('Cleared the price of "Eggs"'));
+      assert.equal(client._items[0].price, null);
+    });
+
+    it('requires a price for set_item_price', async () => {
+      client._items.push({ name: 'Eggs' });
+      const result = await handlers.shopping({ action: 'set_item_price', name: 'Eggs' });
+      assert.ok(result.isError);
+      assert.ok(result.content[0].text.includes('requires "price"'));
+    });
+
+    it('rejects an unknown store', async () => {
+      client._items.push({ name: 'Eggs' });
+      const result = await handlers.shopping({ action: 'set_item_price', name: 'Eggs', price: 1, store_name: 'Costco' });
+      assert.ok(result.isError);
+      assert.equal(client._items[0].price, undefined);
+    });
+
+    it('sets a price on add_item and add_items', async () => {
+      await handlers.shopping({ action: 'add_item', name: 'Milk', price: 3.49 });
+      await handlers.shopping({ action: 'add_items', items: [{ name: 'Eggs', price: 3.79 }, 'Bread'] });
+      const prices = Object.fromEntries(client._items.map(i => [i.name, i.price ?? null]));
+      assert.deepEqual(prices, { Milk: 3.49, Eggs: 3.79, Bread: null });
+    });
+  });
+
   describe('list_lists', () => {
     it('returns empty message when no lists', async () => {
       const result = await handlers.shopping({ action: 'list_lists' });

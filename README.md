@@ -10,7 +10,7 @@ Two deployment modes:
 
 The MCP server provides **5 domain-grouped tools** rather than 18+ individual ones:
 
-- **shopping** — Manage shopping lists and items: add, check off, delete, organize by category and store, and browse favorites
+- **shopping** — Manage shopping lists and items: add, check off, delete, organize by category and store, set prices, and browse favorites
 - **recipes** — Browse, create, and import recipes from URLs; includes ingredient and step parsing
 - **meal_plan** — Schedule meals on a calendar with optional links to recipes
 - **recipe_collections** — Organize recipes into curated named collections
