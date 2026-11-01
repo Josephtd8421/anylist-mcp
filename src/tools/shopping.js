@@ -96,8 +96,8 @@ export function register(server, getClient) {
       include_checked: z.boolean().optional().describe("Include checked-off items (list_items only, default false)"),
       include_notes: z.boolean().optional().describe("Include notes for each item (list_items only, default false)"),
       category: z.enum(valid_categories).optional().describe("Category for the item (add_item only, defaults to 'other')"),
-      store_name: z.string().optional().describe("Store to assign to this item (add_item and set_item_store only; omit or leave blank to clear). For set_item_price, the store the price is for (defaults to the item's store)"),
-      price: z.number().min(0).optional().describe("Price per item in the list's currency, e.g. 5.49 (set_item_price, add_item; 0 clears the price)"),
+      store_name: z.string().optional().describe("Store to assign to this item (add_item and set_item_store only; omit or leave blank to clear). For set_item_price, set that store's price instead of the item's main price"),
+      price: z.number().min(0).optional().describe("Price per item in the list's currency, e.g. 5.49 (set_item_price, add_item; 0 clears the price). This is the item's main price, the one AnyList shows unless the list is filtered to a store"),
     }
   }, async (params) => {
     const { action, list_name, name, quantity, notes, include_checked, include_notes, category } = params;
@@ -156,7 +156,9 @@ export function register(server, getClient) {
               const note = item.note ? ` [${item.note}]` : "";
               const store = item.store ? ` @${item.store}` : "";
               const price = item.price != null ? ` $${item.price.toFixed(2)}` : "";
-              return `  - ${item.name}${qty}${price}${status}${note}${store}`;
+              const storePrices = (item.storePrices || []).map(p => `${p.store} $${p.amount.toFixed(2)}`).join(", ");
+              const storePrice = storePrices ? ` (${storePrices})` : "";
+              return `  - ${item.name}${qty}${price}${storePrice}${status}${note}${store}`;
             }).join("\n");
             return `**${category}**\n${categoryItems}`;
           }).join("\n\n");
@@ -210,9 +212,10 @@ export function register(server, getClient) {
           if (!valid) return errorResponse(message);
           const resolvedPrice = await resolveItemName(client, itemName);
           await client.setItemPrice(resolvedPrice, params.price, params.store_name || null);
+          const which = params.store_name ? `${params.store_name} price` : "price";
           return textResponse(params.price === 0
-            ? `Cleared the price of "${resolvedPrice}" on list "${client.targetList.name}"`
-            : `Set the price of "${resolvedPrice}" to $${params.price.toFixed(2)} on list "${client.targetList.name}"`);
+            ? `Cleared the ${which} of "${resolvedPrice}" on list "${client.targetList.name}"`
+            : `Set the ${which} of "${resolvedPrice}" to $${params.price.toFixed(2)} on list "${client.targetList.name}"`);
         }
         case "check_item": {
           let itemName = name;

@@ -63,18 +63,19 @@ describe('item prices', () => {
     ]);
   });
 
-  it('reads the price AnyList shows for each item', async () => {
+  it('reads the main price and lists store prices separately', async () => {
     const items = await ctx.client.getItems();
-    const byName = Object.fromEntries(items.map(i => [i.name, i.price]));
+    const byName = Object.fromEntries(items.map(i => [i.name, [i.price, i.storePrices]]));
     assert.deepEqual(byName, {
-      'Greek yogurt': 6.49, // its one store's price
-      'Eggs': null,         // no price yet
-      'Bananas': 0.29,      // no store, so the no-store price
-      'Oats': 2.99,         // the one assigned store that has a price
+      // A store's price is not the main price, even for an item assigned to that store.
+      'Greek yogurt': [null, [{ store: 'Trader Joes', amount: 6.49 }]],
+      'Eggs': [null, undefined],
+      'Bananas': [0.29, undefined],
+      'Oats': [null, [{ store: 'Aldi', amount: 2.99 }]],
     });
   });
 
-  it('sends a save-item-price op for the item\'s store and keeps its details', async () => {
+  it('sets the main price by default, even for an item assigned to a store', async () => {
     await ctx.client.setItemPrice('Greek yogurt', 5.49);
 
     assert.equal(ctx.posts.length, 1);
@@ -85,24 +86,23 @@ describe('item prices', () => {
     assert.equal(op.listId, LIST_ID);
     assert.equal(op.listItemId, 'i-yogurt');
     assert.equal(op.itemPrice.amount, 5.49);
-    assert.equal(op.itemPrice.storeId, TJ);
-    assert.equal(op.itemPrice.details, 'tub');
+    assert.equal(op.itemPrice.storeId, null);
 
     const yogurt = (await ctx.client.getItems()).find(i => i.name === 'Greek yogurt');
     assert.equal(yogurt.price, 5.49);
+    assert.deepEqual(yogurt.storePrices, [{ store: 'Trader Joes', amount: 6.49 }]);
   });
 
-  it('adds a first price under the item\'s only store', async () => {
-    await ctx.client.setItemPrice('Eggs', 3.79);
+  it('replaces a named store\'s price and keeps its details', async () => {
+    await ctx.client.setItemPrice('Greek yogurt', 5.99, 'Trader Joes');
     const op = decodeOperation(ctx.anylist, ctx.posts[0]);
     assert.equal(op.itemPrice.storeId, TJ);
-    assert.equal((await ctx.client.getItems()).find(i => i.name === 'Eggs').price, 3.79);
-  });
+    assert.equal(op.itemPrice.amount, 5.99);
+    assert.equal(op.itemPrice.details, 'tub');
 
-  it('saves the price for a named store', async () => {
-    await ctx.client.setItemPrice('Eggs', 4.19, 'Aldi');
-    const op = decodeOperation(ctx.anylist, ctx.posts[0]);
-    assert.equal(op.itemPrice.storeId, ALDI);
+    const yogurt = (await ctx.client.getItems()).find(i => i.name === 'Greek yogurt');
+    assert.equal(yogurt.price, null);
+    assert.deepEqual(yogurt.storePrices, [{ store: 'Trader Joes', amount: 5.99 }]);
   });
 
   it('rejects an unknown store without sending anything', async () => {
@@ -110,12 +110,22 @@ describe('item prices', () => {
     assert.equal(ctx.posts.length, 0);
   });
 
-  it('clears a price with 0 by sending an empty price for that store', async () => {
+  it('clears the main price with 0 by sending an empty no-store price', async () => {
     await ctx.client.setItemPrice('Bananas', 0);
     const op = decodeOperation(ctx.anylist, ctx.posts[0]);
     assert.equal(op.itemPrice.amount, null);
     assert.equal(op.itemPrice.storeId, null);
     assert.equal((await ctx.client.getItems()).find(i => i.name === 'Bananas').price, null);
+  });
+
+  it('clears one store\'s price and leaves the rest', async () => {
+    await ctx.client.setItemPrice('Oats', 0, 'Aldi');
+    const op = decodeOperation(ctx.anylist, ctx.posts[0]);
+    assert.equal(op.itemPrice.amount, null);
+    assert.equal(op.itemPrice.storeId, ALDI);
+    const oats = (await ctx.client.getItems()).find(i => i.name === 'Oats');
+    assert.equal(oats.price, null);
+    assert.equal(oats.storePrices, undefined);
   });
 
   it('remembers prices of items added after the snapshot', async () => {
