@@ -1,4 +1,6 @@
 import AnyList from '../anylist-js/lib/index.js';
+import uuid from '../anylist-js/lib/uuid.js';
+import FormData from 'form-data';
 import { normalizeRecipe } from './recipe-normalizer.js';
 
 class AnyListClient {
@@ -282,7 +284,9 @@ class AnyListClient {
         }
         const store = (this.targetList.stores || []).find(s => s.identifier === item.storeIds[0]);
         result.store = store ? store.name : null;
-        
+        const price = this._displayPrice(item);
+        result.price = price ? price.amount : null;
+
         return result;
       });
     } catch (error) {
@@ -341,6 +345,99 @@ class AnyListClient {
       storeIds = [store.identifier];
     }
     await item.setStores(storeIds);
+  }
+
+  // ===== PRICES =====
+  //
+  // AnyList keeps prices per store on each item: ListItem.prices holds one
+  // PBItemPrice per storeId ("" = no store). anylist-js's Item doesn't carry
+  // prices, so they're read from the raw user-data snapshot and kept in step
+  // locally after each write.
+
+  _itemPrices(item) {
+    const rawList = (this.client?._userData?.shoppingListsResponse?.newLists || [])
+      .find(l => l.identifier === this.targetList.identifier);
+    const rawItem = (rawList?.items || []).find(i => i.identifier === item.identifier);
+    if (rawItem) return rawItem.prices || (rawItem.prices = []);
+    // Added since the snapshot was taken, so it isn't in the raw data.
+    this._newItemPrices ??= new Map();
+    if (!this._newItemPrices.has(item.identifier)) this._newItemPrices.set(item.identifier, []);
+    return this._newItemPrices.get(item.identifier);
+  }
+
+  // The store whose price AnyList shows for an item: the one assigned store
+  // that has a price, else the only assigned store, else no store.
+  _priceStoreId(item, prices) {
+    const storeIds = item.storeIds || [];
+    const priced = storeIds.filter(id => prices.some(p => (p.storeId || '') === id));
+    if (priced.length === 1) return priced[0];
+    if (priced.length === 0 && storeIds.length === 1) return storeIds[0];
+    return '';
+  }
+
+  _displayPrice(item) {
+    const prices = this._itemPrices(item);
+    const storeId = this._priceStoreId(item, prices);
+    const price = prices.find(p => (p.storeId || '') === storeId);
+    return price && price.amount != null ? { amount: price.amount } : null;
+  }
+
+  /**
+   * Set (or clear, with null/0) an item's price. The price is saved for
+   * `storeName` if given, otherwise for the store AnyList would show it under.
+   */
+  async setItemPrice(itemName, amount, storeName = null) {
+    if (!this.targetList) {
+      throw new Error('Not connected to any list. Call connect() first.');
+    }
+    const item = this.targetList.getItemByName(itemName);
+    if (!item) {
+      throw new Error(`Item "${itemName}" not found in list`);
+    }
+    const prices = this._itemPrices(item);
+    let storeId;
+    if (storeName) {
+      const store = this.targetList.findStoreByName(storeName);
+      if (!store) {
+        const available = (this.targetList.stores || []).map(s => s.name).join(', ') || 'none';
+        throw new Error(`Store "${storeName}" not found. Available stores: ${available}`);
+      }
+      storeId = store.identifier;
+    } else {
+      storeId = this._priceStoreId(item, prices);
+    }
+
+    // save-item-price replaces the store's whole price entry, so carry over its
+    // details and date. An empty entry is how AnyList removes the price.
+    const index = prices.findIndex(p => (p.storeId || '') === storeId);
+    const clearing = amount == null || Number(amount) === 0;
+    const itemPrice = { storeId: storeId || null };
+    if (!clearing) {
+      itemPrice.amount = Number(amount);
+      if (index >= 0 && prices[index].details) itemPrice.details = prices[index].details;
+      if (index >= 0 && prices[index].date) itemPrice.date = prices[index].date;
+    }
+
+    const { protobuf, uid } = this.client;
+    const op = new protobuf.PBListOperation();
+    op.setMetadata({ operationId: uuid(), handlerId: 'save-item-price', userId: uid });
+    op.setListId(this.targetList.identifier);
+    op.setListItemId(item.identifier);
+    op.setItemPrice(new protobuf.PBItemPrice(itemPrice));
+
+    const opList = new protobuf.PBListOperationList();
+    opList.setOperations([op]);
+    const form = new FormData();
+    form.append('operations', opList.toBuffer());
+    await this.client.client.post('data/shopping-lists/update', { body: form });
+
+    if (clearing) {
+      if (index >= 0) prices.splice(index, 1);
+    } else if (index >= 0) {
+      prices[index] = itemPrice;
+    } else {
+      prices.push(itemPrice);
+    }
   }
 
   async createStore(storeName) {

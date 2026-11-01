@@ -13,10 +13,11 @@ const valid_categories = ["baby","bakery","beverages","breakfast-and-cereal","co
 function buildDescription(stores) {
   const base = `Manage AnyList shopping lists and items. Actions:
 - list_lists: Show all lists with item counts
-- list_items: Show items on a list (grouped by category)
+- list_items: Show items on a list (grouped by category), with prices
 - add_item: Add an item to a list
 - add_items: Add several items to a list in one call (use this instead of repeating add_item)
 - check_item: Check off (complete) an item
+- set_item_price: Set an item's price (0 clears it)
 - uncheck_item: Uncheck a previously checked-off item (make it active again)
 - delete_item: Permanently remove an item from a list
 - get_favorites: Get favorite items for a list
@@ -76,9 +77,9 @@ export function register(server, getClient) {
     description: buildDescription([]),
     inputSchema: {
       action: z.enum(["list_lists", "list_items", "add_item", "add_items",
-        "set_item_store", "check_item", "uncheck_item", "delete_item", "get_favorites", "get_recents", "list_stores"]).describe("The shopping action to perform"),
+        "set_item_store", "set_item_price", "check_item", "uncheck_item", "delete_item", "get_favorites", "get_recents", "list_stores"]).describe("The shopping action to perform"),
       list_name: z.string().optional().describe("Name of the list (defaults to configured default list)"),
-      name: z.string().optional().describe("Item name (required for add_item, set_item_store, check_item, uncheck_item, delete_item)"),
+      name: z.string().optional().describe("Item name (required for add_item, set_item_store, set_item_price, check_item, uncheck_item, delete_item)"),
       items: z.array(z.union([
         z.string(),
         z.object({
@@ -87,14 +88,16 @@ export function register(server, getClient) {
           notes: z.string().optional(),
           category: z.enum(valid_categories).optional(),
           store_name: z.string().optional(),
+          price: z.number().min(0).optional(),
         })
-      ])).optional().describe("Items to add (add_items only). Each entry is either a plain item name or an object with name/quantity/notes/category/store_name"),
+      ])).optional().describe("Items to add (add_items only). Each entry is either a plain item name or an object with name/quantity/notes/category/store_name/price"),
       quantity: z.union([z.number().min(1), z.string().min(1)]).optional().describe("Item quantity, e.g. 2 or \"500 g\" (add_item only, defaults to 1)"),
       notes: z.string().optional().describe("Notes for the item (add_item only)"),
       include_checked: z.boolean().optional().describe("Include checked-off items (list_items only, default false)"),
       include_notes: z.boolean().optional().describe("Include notes for each item (list_items only, default false)"),
       category: z.enum(valid_categories).optional().describe("Category for the item (add_item only, defaults to 'other')"),
-      store_name: z.string().optional().describe("Store to assign to this item (add_item and set_item_store only; omit or leave blank to clear)"),
+      store_name: z.string().optional().describe("Store to assign to this item (add_item and set_item_store only; omit or leave blank to clear). For set_item_price, the store the price is for (defaults to the item's store)"),
+      price: z.number().min(0).optional().describe("Price per item in the list's currency, e.g. 5.49 (set_item_price, add_item; 0 clears the price)"),
     }
   }, async (params) => {
     const { action, list_name, name, quantity, notes, include_checked, include_notes, category } = params;
@@ -152,7 +155,8 @@ export function register(server, getClient) {
               const status = item.checked ? " ✓" : "";
               const note = item.note ? ` [${item.note}]` : "";
               const store = item.store ? ` @${item.store}` : "";
-              return `  - ${item.name}${qty}${status}${note}${store}`;
+              const price = item.price != null ? ` $${item.price.toFixed(2)}` : "";
+              return `  - ${item.name}${qty}${price}${status}${note}${store}`;
             }).join("\n");
             return `**${category}**\n${categoryItems}`;
           }).join("\n\n");
@@ -168,6 +172,7 @@ export function register(server, getClient) {
             return errorResponse(message); 
 
           await client.addItem(itemName, quantity || 1, notes || null, params.category || "other", params.store_name || null);
+          if (params.price != null) await client.setItemPrice(itemName, params.price);
           return textResponse(`Successfully added "${itemName}" to list "${client.targetList.name}"`);
         }
         case "add_items": {
@@ -185,6 +190,7 @@ export function register(server, getClient) {
               const { valid, message } = await validateStoreName(client, item.store_name);
               if (!valid) throw new Error(message);
               await client.addItem(item.name, item.quantity || 1, item.notes || null, item.category || "other", item.store_name || null);
+              if (item.price != null) await client.setItemPrice(item.name, item.price);
               added.push(item.name);
             } catch (error) {
               failed.push(`${item.name}: ${error.message}`);
@@ -194,6 +200,19 @@ export function register(server, getClient) {
           added.forEach(n => summary.push(`  ✓ ${n}`));
           failed.forEach(f => summary.push(`  ✗ ${f}`));
           return failed.length > 0 ? errorResponse(summary.join("\n")) : textResponse(summary.join("\n"));
+        }
+        case "set_item_price": {
+          let itemName = name;
+          if (!itemName) itemName = await elicitRequiredField("name", "Which item's price would you like to set?");
+          if (params.price == null) throw new Error(`Action "set_item_price" requires "price" (use 0 to clear)`);
+          await client.connect(list_name);
+          const { valid, message } = await validateStoreName(client, params.store_name);
+          if (!valid) return errorResponse(message);
+          const resolvedPrice = await resolveItemName(client, itemName);
+          await client.setItemPrice(resolvedPrice, params.price, params.store_name || null);
+          return textResponse(params.price === 0
+            ? `Cleared the price of "${resolvedPrice}" on list "${client.targetList.name}"`
+            : `Set the price of "${resolvedPrice}" to $${params.price.toFixed(2)} on list "${client.targetList.name}"`);
         }
         case "check_item": {
           let itemName = name;
