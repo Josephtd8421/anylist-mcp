@@ -33,7 +33,7 @@ Manage shopping lists and items.
 | `include_notes` | boolean | No | Include item notes in output (list_items only) |
 | `store_name` | string | No | Filter items by store (add_items, set_item_category only) |
 | `category` | string | No | Category for item (add_item only) |
-| `price` | number | No | Price per item, e.g. 5.49 (set_item_price, add_item; 0 clears it). Also accepted per entry in add_items |
+| `price` | number | No | Price per item, e.g. 5.49 (set_item_price, add_item; 0 clears it). The item's main price unless store_name is given. Also accepted per entry in add_items |
 
 **Actions:**
 
@@ -65,8 +65,10 @@ Manage shopping lists and items.
 // Set store for an item
 { "name": "shopping", "arguments": { "action": "set_item_store", "name": "Milk", "store_name": "Costco" } }
 
-// Set an item's price. AnyList keeps one price per store; it's saved for the item's
-// store unless store_name names another. list_items shows each item's price.
+// Set an item's main price, the one AnyList shows when the list isn't filtered
+// to a store. With store_name, set that store's price instead (AnyList shows it
+// only under that store's filter). list_items shows the main price, then any
+// store prices in brackets: "Apples $1.39 (Trader Joes $1.99)".
 { "name": "shopping", "arguments": { "action": "set_item_price", "name": "Milk", "price": 3.49 } }
 
 // Set category for an item

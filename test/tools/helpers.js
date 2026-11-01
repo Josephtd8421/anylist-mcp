@@ -107,14 +107,17 @@ export class MockAnyListClient {
       ...(includeNotes && i.notes ? { note: i.notes } : {}),
       ...(includeStore && i.store ? { store: i.store } : {}),
       price: i.price ?? null,
+      ...(i.storePrices?.length ? { storePrices: i.storePrices } : {}),
     }));
   }
 
   async setItemPrice(name, price, store = null) {
     const item = this._items.find(i => i.name === name);
     if (!item) throw new Error(`Item "${name}" not found in list`);
-    item.price = price === 0 ? null : price;
-    item.priceStore = store;
+    const amount = price === 0 ? null : price;
+    if (!store) { item.price = amount; return; }
+    item.storePrices = (item.storePrices || []).filter(p => p.store !== store);
+    if (amount != null) item.storePrices.push({ store, amount });
   }
 
   async setItemStore(name, store) {

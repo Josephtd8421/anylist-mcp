@@ -251,6 +251,12 @@ describe('shopping tool', () => {
       assert.ok(text.includes('- Eggs\n') || text.endsWith('- Eggs'));
     });
 
+    it('shows store prices after the main price', async () => {
+      client._items.push({ name: 'Apples', price: 1.39, storePrices: [{ store: 'Trader Joes', amount: 1.99 }] });
+      const text = (await handlers.shopping({ action: 'list_items' })).content[0].text;
+      assert.ok(text.includes('Apples $1.39 (Trader Joes $1.99)'));
+    });
+
     it('sets a price with set_item_price', async () => {
       client._items.push({ name: 'Greek yogurt' });
       const result = await handlers.shopping({ action: 'set_item_price', name: 'yogurt', price: 5.49 });
@@ -262,7 +268,8 @@ describe('shopping tool', () => {
       client._stores = [{ name: 'Trader Joes' }];
       client._items.push({ name: 'Eggs' });
       await handlers.shopping({ action: 'set_item_price', name: 'Eggs', price: 3.79, store_name: 'Trader Joes' });
-      assert.equal(client._items[0].priceStore, 'Trader Joes');
+      assert.equal(client._items[0].price, undefined);
+      assert.deepEqual(client._items[0].storePrices, [{ store: 'Trader Joes', amount: 3.79 }]);
     });
 
     it('clears a price with 0', async () => {

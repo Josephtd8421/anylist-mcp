@@ -284,8 +284,14 @@ class AnyListClient {
         }
         const store = (this.targetList.stores || []).find(s => s.identifier === item.storeIds[0]);
         result.store = store ? store.name : null;
-        const price = this._displayPrice(item);
-        result.price = price ? price.amount : null;
+        const prices = this._itemPrices(item).filter(p => p.amount != null);
+        const main = prices.find(p => !p.storeId);
+        result.price = main ? main.amount : null;
+        const storePrices = prices.filter(p => p.storeId).map(p => ({
+          store: (this.targetList.stores || []).find(s => s.identifier === p.storeId)?.name || 'unknown store',
+          amount: p.amount,
+        }));
+        if (storePrices.length > 0) result.storePrices = storePrices;
 
         return result;
       });
@@ -350,9 +356,12 @@ class AnyListClient {
   // ===== PRICES =====
   //
   // AnyList keeps prices per store on each item: ListItem.prices holds one
-  // PBItemPrice per storeId ("" = no store). anylist-js's Item doesn't carry
-  // prices, so they're read from the raw user-data snapshot and kept in step
-  // locally after each write.
+  // PBItemPrice per storeId. The entry with no storeId is the item's main
+  // price, the one the apps show when the list isn't filtered to a store; a
+  // store's entry shows only under that store's filter, even when the item is
+  // assigned to that store. anylist-js's Item doesn't carry prices, so they're
+  // read from the raw user-data snapshot and kept in step locally after each
+  // write.
 
   _itemPrices(item) {
     const rawList = (this.client?._userData?.shoppingListsResponse?.newLists || [])
@@ -365,26 +374,9 @@ class AnyListClient {
     return this._newItemPrices.get(item.identifier);
   }
 
-  // The store whose price AnyList shows for an item: the one assigned store
-  // that has a price, else the only assigned store, else no store.
-  _priceStoreId(item, prices) {
-    const storeIds = item.storeIds || [];
-    const priced = storeIds.filter(id => prices.some(p => (p.storeId || '') === id));
-    if (priced.length === 1) return priced[0];
-    if (priced.length === 0 && storeIds.length === 1) return storeIds[0];
-    return '';
-  }
-
-  _displayPrice(item) {
-    const prices = this._itemPrices(item);
-    const storeId = this._priceStoreId(item, prices);
-    const price = prices.find(p => (p.storeId || '') === storeId);
-    return price && price.amount != null ? { amount: price.amount } : null;
-  }
-
   /**
-   * Set (or clear, with null/0) an item's price. The price is saved for
-   * `storeName` if given, otherwise for the store AnyList would show it under.
+   * Set (or clear, with null/0) an item's main price, or with `storeName`,
+   * that store's price.
    */
   async setItemPrice(itemName, amount, storeName = null) {
     if (!this.targetList) {
@@ -395,7 +387,7 @@ class AnyListClient {
       throw new Error(`Item "${itemName}" not found in list`);
     }
     const prices = this._itemPrices(item);
-    let storeId;
+    let storeId = '';
     if (storeName) {
       const store = this.targetList.findStoreByName(storeName);
       if (!store) {
@@ -403,8 +395,6 @@ class AnyListClient {
         throw new Error(`Store "${storeName}" not found. Available stores: ${available}`);
       }
       storeId = store.identifier;
-    } else {
-      storeId = this._priceStoreId(item, prices);
     }
 
     // save-item-price replaces the store's whole price entry, so carry over its
