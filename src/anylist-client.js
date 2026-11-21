@@ -17,16 +17,33 @@ class AnyListClient {
     this.defaultListName = defaultListName || null;
   }
 
-  async connect(listName = null) {
+  _credentials() {
     const username = this._username || process.env.ANYLIST_USERNAME;
     const password = this._password || process.env.ANYLIST_PASSWORD;
-    const targetListName = listName || this.defaultListName || process.env.ANYLIST_LIST_NAME;
-
     if (!username || !password) {
       const error = new Error('Missing AnyList credentials. Provide username and password.');
       console.error(error.message);
       throw error;
     }
+    return { username, password };
+  }
+
+  // Signs in once and loads the account's lists. Needs no target list, so
+  // account-level actions like createList work without a default list.
+  async authenticate() {
+    if (this.client) return;
+    const { username, password } = this._credentials();
+    const client = new AnyList({ email: username, password });
+    console.error(`Connecting to AnyList as ${username}...`);
+    await client.login();
+    console.error('Successfully authenticated with AnyList');
+    await client.getLists();
+    this.client = client;
+  }
+
+  async connect(listName = null) {
+    this._credentials();
+    const targetListName = listName || this.defaultListName || process.env.ANYLIST_LIST_NAME;
 
     if (!targetListName) {
       const error = new Error('No list name provided and no default list configured');
@@ -40,20 +57,7 @@ class AnyListClient {
     }
 
     try {
-      // Create AnyList client if not already authenticated
-      if (!this.client) {
-        this.client = new AnyList({
-          email: username,
-          password: password
-        });
-
-        // Authenticate
-        console.error(`Connecting to AnyList as ${username}...`);
-        await this.client.login();
-        console.error('Successfully authenticated with AnyList');
-
-        await this.client.getLists();
-      }
+      await this.authenticate();
 
       // Find the target list
       console.error(`Looking for list: "${targetListName}"`);
@@ -92,9 +96,7 @@ class AnyListClient {
   // AnyList can acknowledge a new-shopping-list operation without the list
   // appearing, so read the lists back and only report success once it is there.
   async createList(listName) {
-    if (!this.client) {
-      throw new Error('Not connected. Call connect() first.');
-    }
+    await this.authenticate();
     const name = String(listName || '').trim();
     if (!name) {
       throw new Error('List name is required');

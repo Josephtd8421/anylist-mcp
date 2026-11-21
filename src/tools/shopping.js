@@ -124,7 +124,6 @@ export function register(server, getClient) {
         case "create_list": {
           let newName = list_name;
           if (!newName) newName = await elicitRequiredField("list_name", "What should the new list be called?");
-          await client.connect(null);
           const created = await client.createList(newName);
           return textResponse(`Created list "${created.name}"`);
         }
