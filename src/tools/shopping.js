@@ -13,6 +13,7 @@ const valid_categories = ["baby","bakery","beverages","breakfast-and-cereal","co
 function buildDescription(stores) {
   const base = `Manage AnyList shopping lists and items. Actions:
 - list_lists: Show all lists with item counts
+- create_list: Create a new, empty list named list_name
 - list_items: Show items on a list (grouped by category), with prices
 - add_item: Add an item to a list
 - add_items: Add several items to a list in one call (use this instead of repeating add_item)
@@ -76,9 +77,9 @@ export function register(server, getClient) {
     title: "Shopping Lists & Items",
     description: buildDescription([]),
     inputSchema: {
-      action: z.enum(["list_lists", "list_items", "add_item", "add_items",
+      action: z.enum(["list_lists", "create_list", "list_items", "add_item", "add_items",
         "set_item_store", "set_item_price", "check_item", "uncheck_item", "delete_item", "get_favorites", "get_recents", "list_stores"]).describe("The shopping action to perform"),
-      list_name: z.string().optional().describe("Name of the list (defaults to configured default list)"),
+      list_name: z.string().optional().describe("Name of the list (defaults to configured default list). For create_list, the new list's name"),
       name: z.string().optional().describe("Item name (required for add_item, set_item_store, set_item_price, check_item, uncheck_item, delete_item)"),
       items: z.array(z.union([
         z.string(),
@@ -119,6 +120,13 @@ export function register(server, getClient) {
           if (lists.length === 0) return textResponse("No lists found in the account.");
           const output = lists.map(l => `- ${l.name} (${l.uncheckedCount} unchecked items)`).join("\n");
           return textResponse(`Available lists (${lists.length}):\n${output}`);
+        }
+        case "create_list": {
+          let newName = list_name;
+          if (!newName) newName = await elicitRequiredField("list_name", "What should the new list be called?");
+          await client.connect(null);
+          const created = await client.createList(newName);
+          return textResponse(`Created list "${created.name}"`);
         }
         case "list_items": {
           let resolvedListName = list_name;

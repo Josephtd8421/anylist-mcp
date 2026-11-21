@@ -25,7 +25,7 @@ Manage shopping lists and items.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `action` | enum | Yes | See actions below |
-| `list_name` | string | No | Target list (defaults to configured default) |
+| `list_name` | string | No | Target list (defaults to configured default). For create_list, the new list's name |
 | `name` | string | For item actions | Item name |
 | `quantity` | number | No | Item quantity (add_item only, default 1) |
 | `notes` | string | No | Item notes (add_item only) |
@@ -40,6 +40,9 @@ Manage shopping lists and items.
 ```json
 // List all shopping lists with item counts
 { "name": "shopping", "arguments": { "action": "list_lists" } }
+
+// Create a new, empty list (fails if a list with that name already exists)
+{ "name": "shopping", "arguments": { "action": "create_list", "list_name": "Christmas List" } }
 
 // List items on a list, grouped by category
 { "name": "shopping", "arguments": { "action": "list_items", "list_name": "Costco", "include_notes": true } }

@@ -318,6 +318,29 @@ describe('shopping tool', () => {
     });
   });
 
+  describe('create_list', () => {
+    it('creates a list with the given name', async () => {
+      const result = await handlers.shopping({ action: 'create_list', list_name: 'Christmas List' });
+      assert.equal(result.content[0].text, 'Created list "Christmas List"');
+      assert.deepEqual(client._lists.map(l => l.name), ['Christmas List']);
+    });
+
+    it('reports an error when the list already exists', async () => {
+      client._lists = [{ name: 'Christmas List', uncheckedCount: 0 }];
+      const result = await handlers.shopping({ action: 'create_list', list_name: 'Christmas List' });
+      assert.equal(result.isError, true);
+      assert.ok(result.content[0].text.includes('already exists'));
+      assert.equal(client._lists.length, 1);
+    });
+
+    it('requires a list name', async () => {
+      const result = await handlers.shopping({ action: 'create_list' });
+      assert.equal(result.isError, true);
+      assert.ok(result.content[0].text.includes('list_name'));
+      assert.equal(client._lists.length, 0);
+    });
+  });
+
   describe('get_favorites', () => {
     it('returns empty message when no favorites', async () => {
       const result = await handlers.shopping({ action: 'get_favorites' });
