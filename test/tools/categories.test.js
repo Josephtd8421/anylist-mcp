@@ -108,8 +108,20 @@ describe('categories tool', () => {
       const result = await handlers.categories({ action: 'list_categories', list_name: 'Weekly Dinners' });
       const text = result.content[0].text;
       assert.ok(text.includes('Categories on list "Weekly Dinners"'), text);
-      assert.ok(text.includes('- Other (default) (1 item)'), text);
+      assert.ok(text.includes('- Other (default) (2 items)'), text);
       assert.equal(account.posts.length, 0);
+    });
+
+    it('counts items placed by match id or left in the default', async () => {
+      account.groups[0].categoryGroup.categories.push(
+        { identifier: 'a-prod', name: 'Produce', systemCategory: 'produce', categoryGroupId: GROUP_A, sortIndex: 1 });
+      const raw = account.client.client._userData.shoppingListsResponse.newLists[0];
+      raw.items.push(new proto.ListItem({ identifier: 'i3', listId: LIST_ID, name: 'Apples', categoryMatchId: 'produce' }));
+      const result = await handlers.categories({ action: 'list_categories', list_name: 'Weekly Dinners' });
+      const text = result.content[0].text;
+      assert.ok(text.includes('- Produce (1 item)'), text);
+      // Tacos has no assignment and match id "other", Chili is assigned to Other.
+      assert.ok(text.includes('- Other (default) (2 items)'), text);
     });
 
     it('shows every set when the list has several', async () => {

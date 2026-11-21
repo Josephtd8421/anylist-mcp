@@ -62,14 +62,38 @@ function findCategoryInGroup(group, name) {
  * Describe a list's category sets and their categories, with item counts.
  * Read-only.
  */
+/**
+ * Which category of `group` an item shows under. An explicit assignment in
+ * that set wins; otherwise AnyList places the item by its match id (the
+ * built-in grocery categories carry it as `systemCategory`); anything left
+ * falls into the set's default category.
+ */
+export function categoryIdForItem(item, group) {
+  const assigned = (item.categoryAssignments || []).find(a => a.categoryGroupId === group.identifier);
+  if (assigned && (group.categories || []).some(c => c.identifier === assigned.categoryId)) {
+    return assigned.categoryId;
+  }
+  const matchId = item.categoryMatchId;
+  if (matchId && matchId !== 'other') {
+    const byMatch = (group.categories || []).find(c => c.systemCategory === matchId)
+      || (group.categories || []).find(c => !c.systemCategory && slugify(c.name) === matchId);
+    if (byMatch) return byMatch.identifier;
+  }
+  return group.defaultCategoryId || null;
+}
+
 export function describeCategories(list) {
-  const items = list.items || [];
+  const items = (list.items || []).filter(i => !i.checked);
   return (list.categoryGroups || []).map(group => {
+    const counts = {};
+    for (const item of items) {
+      const id = categoryIdForItem(item, group);
+      if (id) counts[id] = (counts[id] || 0) + 1;
+    }
     const categories = [...(group.categories || [])]
       .sort((a, b) => (a.sortIndex ?? 0) - (b.sortIndex ?? 0))
       .map(c => {
-        const itemCount = items.filter(i => !i.checked && (i.categoryAssignments || [])
-          .some(a => a.categoryGroupId === group.identifier && a.categoryId === c.identifier)).length;
+        const itemCount = counts[c.identifier] || 0;
         return {
           name: c.name,
           id: c.identifier,
