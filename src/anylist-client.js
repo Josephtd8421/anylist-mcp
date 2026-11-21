@@ -89,6 +89,53 @@ class AnyListClient {
     }));
   }
 
+  // AnyList can acknowledge a new-shopping-list operation without the list
+  // appearing, so read the lists back and only report success once it is there.
+  async createList(listName) {
+    if (!this.client) {
+      throw new Error('Not connected. Call connect() first.');
+    }
+    const name = String(listName || '').trim();
+    if (!name) {
+      throw new Error('List name is required');
+    }
+    if (this.client.getListByName(name)) {
+      throw new Error(`List "${name}" already exists`);
+    }
+
+    const { protobuf, uid } = this.client;
+    const identifier = uuid();
+    const op = new protobuf.PBListOperation();
+    op.setMetadata({ operationId: uuid(), handlerId: 'new-shopping-list', userId: uid });
+    op.setListId(identifier);
+    op.setList(new protobuf.ShoppingList({
+      identifier,
+      timestamp: Date.now() / 1000,
+      name,
+      creator: uid,
+      logicalClockTime: 1,
+      allowsMultipleListCategoryGroups: true,
+    }));
+
+    const opList = new protobuf.PBListOperationList();
+    opList.setOperations([op]);
+    const form = new FormData();
+    form.append('operations', opList.toBuffer());
+    await this.client.client.post('data/shopping-lists/update', { body: form });
+
+    await this.client.getLists();
+    // getLists() rebuilds every List, so re-point the connected one.
+    if (this.targetList) {
+      this.targetList = this.client.getListById(this.targetList.identifier);
+    }
+    const created = this.client.getListById(identifier);
+    if (!created) {
+      throw new Error(`AnyList accepted the request but list "${name}" did not appear`);
+    }
+    console.error(`Created list: ${name}`);
+    return { identifier, name: created.name };
+  }
+
   // Known limitation: quantity only sticks for NEW items (set via _encode during
   // creation, below). For an existing item we fall back to existingItem.save(),
   // which emits a `set-list-item-quantity` op — that handler does NOT populate

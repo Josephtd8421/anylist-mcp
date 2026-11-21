@@ -72,6 +72,12 @@ export class MockAnyListClient {
   }
 
   getLists() { return this._lists; }
+
+  async createList(name) {
+    if (this._lists.some(l => l.name === name)) throw new Error(`List "${name}" already exists`);
+    this._lists.push({ name, uncheckedCount: 0 });
+    return { identifier: 'list-new', name };
+  }
   getStores() { return this._stores || []; }
 
   async addItem(name, qty, notes, category, store = null) {
