@@ -14,6 +14,7 @@ The MCP server provides **5 domain-grouped tools** rather than 18+ individual on
 - **recipes** — Browse, create, and import recipes from URLs; includes ingredient and step parsing
 - **meal_plan** — Schedule meals on a calendar with optional links to recipes
 - **recipe_collections** — Organize recipes into curated named collections
+- **categories** — See and create categories on any list type, and move items into them
 - **health_check** — Verify your connection to AnyList and access to target lists
 
 These tools work together to enable typical workflows: browse or create recipes → plan meals → add ingredients to your shopping list. See [docs/tools.md](docs/tools.md) for the complete reference including all actions and parameters.

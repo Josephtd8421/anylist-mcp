@@ -207,6 +207,28 @@ Organize recipes into named collections.
 
 ---
 
+## `categories`
+
+See and manage the categories on any list (grocery, dinners, to-do and other list types), including lists with Category Sets turned on.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `action` | enum | Yes | `list_categories`, `create_category`, `set_item_category` |
+| `list_name` | string | No | List to use (defaults to configured default list) |
+| `category_name` | string | For create/set | Category name |
+| `item_name` | string | For set_item_category | Item to move |
+| `set_name` | string | No | Category set to use when the list has several (defaults to the first) |
+
+`create_category` does nothing if a category with that name already exists in the set. `set_item_category` re-sends the item exactly as AnyList returned it, changing only its category for the chosen set, so prices, notes and other sets' categories are kept.
+
+```json
+{ "name": "categories", "arguments": { "action": "list_categories", "list_name": "Weekly Dinners" } }
+{ "name": "categories", "arguments": { "action": "create_category", "list_name": "Weekly Dinners", "category_name": "Monday" } }
+{ "name": "categories", "arguments": { "action": "set_item_category", "list_name": "Weekly Dinners", "item_name": "Tacos", "category_name": "Monday" } }
+```
+
+---
+
 ## Typical multi-step interaction
 
 1. **Browse recipes** — `recipes` → `list`
