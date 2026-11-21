@@ -88,6 +88,25 @@ describe('createList', () => {
     assert.equal(ctx.operations.length, 0);
   });
 
+  it('works with no list connected, as when no default list is configured', async () => {
+    ctx.client.targetList = null;
+    const created = await ctx.client.createList('Christmas List');
+    assert.equal(created.name, 'Christmas List');
+    assert.equal(ctx.client.targetList, null);
+  });
+
+  it('signs in on its own first, and stays signed out if sign-in fails', async () => {
+    const login = AnyList.prototype.login;
+    AnyList.prototype.login = async () => { throw new Error('bad password'); };
+    try {
+      const client = new AnyListClient({ username: 'u', password: 'p' });
+      await assert.rejects(client.createList('Christmas List'), /bad password/);
+      assert.equal(client.client, null);
+    } finally {
+      AnyList.prototype.login = login;
+    }
+  });
+
   it('fails when AnyList accepts the request but the list never appears', async () => {
     ctx = await setup({ applyCreate: false });
     await assert.rejects(ctx.client.createList('Christmas List'), /did not appear/);
